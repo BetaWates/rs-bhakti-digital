@@ -1,0 +1,45 @@
+{
+  "$schema": "https://flyenv.com/schema/v1.json",
+  "name": "rs-bhakti-digital-simrs",
+  "version": "1.0.0",
+  "environment": "development",
+  "services": {
+    "database": {
+      "type": "mysql",
+      "version": "8.0",
+      "port": 3306,
+      "database": "rsbhakti_simrs",
+      "username": "simrs_user",
+      "password": "simrs_password",
+      "initScripts": [
+        "backend/src/database/migrations/001_initial_schema.sql"
+      ]
+    },
+    "cache": {
+      "type": "redis",
+      "version": "7.0",
+      "port": 6379
+    },
+    "backend": {
+      "type": "node",
+      "version": "20.x",
+      "port": 3001,
+      "cwd": "backend",
+      "command": "npm run dev",
+      "env": {
+        "NODE_ENV": "development",
+        "DATABASE_URL": "mysql://simrs_user:simrs_password@127.0.0.1:3306/rsbhakti_simrs",
+        "JWT_SECRET": "rs_bhakti_digital_enterprise_secret_2025"
+      }
+    },
+    "frontendWeb": {
+      "type": "node",
+      "version": "20.x",
+      "port": 8443,
+      "command": "pnpm run dev",
+      "env": {
+        "VITE_API_URL": "http://localhost:3001/api/v1"
+      }
+    }
+  }
+}

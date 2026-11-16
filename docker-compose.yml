@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # MySQL Database Service (FlyEnv / Local)
+  mysql:
+    image: mysql:8.0
+    container_name: rsbhakti_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_simrs
+      MYSQL_DATABASE: rsbhakti_simrs
+      MYSQL_USER: simrs_user
+      MYSQL_PASSWORD: simrs_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/src/database/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+
+  # PostgreSQL Alternative Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: rsbhakti_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: rsbhakti_simrs
+      POSTGRES_USER: simrs_user
+      POSTGRES_PASSWORD: simrs_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/database/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+
+  # Redis In-Memory Cache & Queue Broker
+  redis:
+    image: redis:7-alpine
+    container_name: rsbhakti_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # Backend REST API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rsbhakti_backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: "mysql://simrs_user:simrs_password@mysql:3306/rsbhakti_simrs"
+      JWT_SECRET: "rs_bhakti_digital_enterprise_secret_2025"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mysql
+      - redis
+
+volumes:
+  mysql_data:
+  postgres_data:

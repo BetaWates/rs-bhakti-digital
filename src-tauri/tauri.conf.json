@@ -1,0 +1,88 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
+  "build": {
+    "beforeBuildCommand": "pnpm run build",
+    "beforeDevCommand": "pnpm run dev",
+    "devUrl": "http://localhost:8443",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "RS Bhakti Digital",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "fs": {
+        "all": false,
+        "readFile": true,
+        "writeFile": true,
+        "scope": ["$APPDATA/*", "$DOWNLOAD/*"]
+      },
+      "dialog": {
+        "all": true
+      },
+      "notification": {
+        "all": true
+      },
+      "os": {
+        "all": true
+      },
+      "window": {
+        "all": true,
+        "setTitle": true,
+        "print": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "MedicalSoftware",
+      "copyright": "© 2025 RS Bhakti Digital. All rights reserved.",
+      "deb": {
+        "depends": []
+      },
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier": "id.rsbhaktidigital.simrs.desktop",
+      "longDescription": "Sistem Informasi Manajemen Rumah Sakit (SIMRS) Terpadu RS Bhakti Digital untuk Desktop Windows, macOS, dan Linux.",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null
+      },
+      "resources": [],
+      "shortDescription": "SIMRS Enterprise Desktop App",
+      "targets": "all",
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    },
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 900,
+        "resizable": true,
+        "title": "RS Bhakti Digital — SIMRS Enterprise Edition",
+        "width": 1440,
+        "minHeight": 720,
+        "minWidth": 1024,
+        "center": true
+      }
+    ]
+  }
+}

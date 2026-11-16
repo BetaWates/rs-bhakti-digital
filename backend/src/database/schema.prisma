@@ -1,0 +1,256 @@
+// ============================================================================
+// RS Bhakti Digital SIMRS - Prisma Database Schema
+// 14 Core Relational Tables with Explicit Foreign Keys & Relations
+// ============================================================================
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. Roles Table
+model Role {
+  id        String   @id @db.VarChar(50)
+  nama_role String   @unique @db.VarChar(100)
+  deskripsi String?  @db.Text
+  users     User[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+// 2. Users Table
+model User {
+  id            String        @id @db.VarChar(50)
+  role_id       String        @db.VarChar(50)
+  email         String        @unique @db.VarChar(191)
+  password_hash String        @db.VarChar(255)
+  nama_lengkap  String        @db.VarChar(255)
+  is_active     Boolean       @default(true)
+  role          Role          @relation(fields: [role_id], references: [id], onDelete: Restrict)
+  patient       Patient?
+  doctor        Doctor?
+  staffProfile  StaffProfile?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// 3. Patients Table
+model Patient {
+  id                 String              @id @db.VarChar(50)
+  user_id            String?             @unique @db.VarChar(50)
+  no_rm              String              @unique @db.VarChar(50)
+  nik                String              @unique @db.VarChar(20)
+  nama_lengkap       String              @db.VarChar(255)
+  tanggal_lahir      DateTime            @db.Date
+  jenis_kelamin      String              @db.VarChar(1) // 'L' | 'P'
+  alamat             String              @db.Text
+  no_telepon         String              @db.VarChar(50)
+  no_bpjs            String?             @db.VarChar(50)
+  kelas_bpjs         Int?
+  user               User?               @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  appointments       Appointment[]
+  medicalRecords     MedicalRecord[]
+  ambulanceRequests  AmbulanceRequest[]
+  billings           Billing[]
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at")
+
+  @@map("patients")
+}
+
+// 4. Doctors Table
+model Doctor {
+  id             String          @id @db.VarChar(50)
+  user_id        String          @unique @db.VarChar(50)
+  sip            String          @unique @db.VarChar(100)
+  nama_dokter    String          @db.VarChar(255)
+  spesialisasi   String          @db.VarChar(150)
+  jadwal_praktik Json
+  user           User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at")
+
+  @@map("doctors")
+}
+
+// 5. Staff Profiles Table
+model StaffProfile {
+  id                String              @id @db.VarChar(50)
+  user_id           String              @unique @db.VarChar(50)
+  nip               String              @unique @db.VarChar(100)
+  nama_lengkap      String              @db.VarChar(255)
+  departemen        String              @db.VarChar(150)
+  no_telepon        String              @db.VarChar(50)
+  user              User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  prescriptions     Prescription[]
+  labOrders         LabOrder[]
+  ambulanceRequests AmbulanceRequest[]
+  billings          Billing[]
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at")
+
+  @@map("staff_profiles")
+}
+
+// 6. Rooms Table
+model Room {
+  id             String   @id @db.VarChar(50)
+  nomor_kamar    String   @db.VarChar(50)
+  nama_bangsal   String   @db.VarChar(100)
+  kelas          String   @db.VarChar(50)
+  status         String   @db.VarChar(50) // 'tersedia' | 'terisi' | 'maintenance' | 'steril_cssd'
+  tarif_per_hari Decimal  @default(0.00) @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("rooms")
+}
+
+// 7. Appointments Table
+model Appointment {
+  id               String          @id @db.VarChar(50)
+  patient_id       String          @db.VarChar(50)
+  doctor_id        String          @db.VarChar(50)
+  tanggal_periksa  DateTime        @db.Date
+  nomor_antrean    String          @db.VarChar(50)
+  jenis_pembayaran String          @db.VarChar(50) // 'umum' | 'bpjs'
+  status           String          @db.VarChar(50) // 'menunggu' | 'dipanggil' | 'diperiksa' | 'selesai'
+  patient          Patient         @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor           Doctor          @relation(fields: [doctor_id], references: [id], onDelete: Restrict)
+  medicalRecord    MedicalRecord?
+  billing          Billing?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at")
+
+  @@map("appointments")
+}
+
+// 8. Medical Records Table (EMR)
+model MedicalRecord {
+  id             String         @id @db.VarChar(50)
+  appointment_id String         @unique @db.VarChar(50)
+  patient_id     String         @db.VarChar(50)
+  doctor_id      String         @db.VarChar(50)
+  keluhan_utama  String         @db.Text
+  diagnosa       String         @db.VarChar(255)
+  tindakan       String         @db.Text
+  catatan_dokter String?        @db.Text
+  vital_signs    Json?
+  appointment    Appointment    @relation(fields: [appointment_id], references: [id], onDelete: Cascade)
+  patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor         Doctor         @relation(fields: [doctor_id], references: [id], onDelete: Restrict)
+  prescriptions  Prescription[]
+  labOrders      LabOrder[]
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  @@map("medical_records")
+}
+
+// 9. Medicines Table
+model Medicine {
+  id                  String               @id @db.VarChar(50)
+  kode_obat           String               @unique @db.VarChar(100)
+  nama_obat           String               @db.VarChar(255)
+  kategori            String               @db.VarChar(100)
+  stok                Int                  @default(0)
+  harga_satuan        Decimal              @default(0.00) @db.Decimal(12, 2)
+  expired_date        DateTime             @db.Date
+  prescriptionDetails PrescriptionDetail[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  @@map("medicines")
+}
+
+// 10. Prescriptions Table
+model Prescription {
+  id                    String               @id @db.VarChar(50)
+  medical_record_id     String               @db.VarChar(50)
+  processed_by_staff_id String?              @db.VarChar(50)
+  status                String               @db.VarChar(50) // 'pending' | 'diproses' | 'selesai'
+  medicalRecord         MedicalRecord        @relation(fields: [medical_record_id], references: [id], onDelete: Cascade)
+  staff                 StaffProfile?        @relation(fields: [processed_by_staff_id], references: [id], onDelete: SetNull)
+  details               PrescriptionDetail[]
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  @@map("prescriptions")
+}
+
+// 11. Prescription Details Table
+model PrescriptionDetail {
+  id              String       @id @db.VarChar(50)
+  prescription_id String       @db.VarChar(50)
+  medicine_id     String       @db.VarChar(50)
+  jumlah          Int          @default(1)
+  aturan_pakai    String       @db.VarChar(255)
+  prescription    Prescription @relation(fields: [prescription_id], references: [id], onDelete: Cascade)
+  medicine        Medicine     @relation(fields: [medicine_id], references: [id], onDelete: Restrict)
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  @@map("prescription_details")
+}
+
+// 12. Lab Orders Table
+model LabOrder {
+  id                    String        @id @db.VarChar(50)
+  medical_record_id     String        @db.VarChar(50)
+  processed_by_staff_id String?       @db.VarChar(50)
+  jenis_pemeriksaan     String        @db.VarChar(255)
+  hasil_lab             String?       @db.Text
+  status                String        @db.VarChar(50) // 'pending' | 'diproses' | 'selesai'
+  medicalRecord         MedicalRecord @relation(fields: [medical_record_id], references: [id], onDelete: Cascade)
+  staff                 StaffProfile? @relation(fields: [processed_by_staff_id], references: [id], onDelete: SetNull)
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  @@map("lab_orders")
+}
+
+// 13. Ambulance Requests Table
+model AmbulanceRequest {
+  id                 String        @id @db.VarChar(50)
+  patient_id         String        @db.VarChar(50)
+  driver_staff_id    String?       @db.VarChar(50)
+  jenis_kendaraan    String        @db.VarChar(100)
+  lokasi_penjemputan String        @db.Text
+  tujuan             String        @db.Text
+  status             String        @db.VarChar(50) // 'pending' | 'dikirim' | 'selesai'
+  patient            Patient       @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  driver             StaffProfile? @relation(fields: [driver_staff_id], references: [id], onDelete: SetNull)
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  @@map("ambulance_requests")
+}
+
+// 14. Billings Table
+model Billing {
+  id                String        @id @db.VarChar(50)
+  patient_id        String        @db.VarChar(50)
+  appointment_id    String        @unique @db.VarChar(50)
+  cashier_staff_id  String?       @db.VarChar(50)
+  total_biaya       Decimal       @default(0.00) @db.Decimal(14, 2)
+  cover_bpjs        Decimal       @default(0.00) @db.Decimal(14, 2)
+  sisa_bayar_pasien Decimal       @default(0.00) @db.Decimal(14, 2)
+  status_pembayaran String        @db.VarChar(50) // 'pending' | 'dibayar' | 'klaim_bpjs'
+  patient           Patient       @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  appointment       Appointment   @relation(fields: [appointment_id], references: [id], onDelete: Restrict)
+  cashier           StaffProfile? @relation(fields: [cashier_staff_id], references: [id], onDelete: SetNull)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  @@map("billings")
+}

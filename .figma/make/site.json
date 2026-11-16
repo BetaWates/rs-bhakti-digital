@@ -1,0 +1,14 @@
+{
+  "title": "RS Bhakti Digital — SIMRS Enterprise",
+  "description": "Manage hospital operations with patient metrics, global search, and clear data tables, helping healthcare teams monitor activity and make informed decisions.",
+  "icons": {
+    "icon": "/favicon.png"
+  },
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
