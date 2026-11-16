@@ -6,8 +6,8 @@
 import 'package:flutter/material.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
 import 'screens/patient_dashboard.dart';
-import 'screens/nakes_dashboard.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,8 +45,8 @@ class RSBhaktiApp extends StatelessWidget {
       routes: {
         '/': (context) => const MobileSplashScreen(),
         '/login': (context) => const MobileLoginScreen(),
+        '/register': (context) => const MobileRegisterScreen(),
         '/patient': (context) => const PatientDashboardScreen(),
-        '/nakes': (context) => const NakesDashboardScreen(),
       },
     );
   }

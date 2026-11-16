@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 
 class MobileSplashScreen extends StatefulWidget {
   const MobileSplashScreen({super.key});
@@ -21,12 +22,25 @@ class _MobileSplashScreenState extends State<MobileSplashScreen> with SingleTick
     _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
     _controller.forward();
 
-    // Navigate to Login after 2.5 seconds boot sequence
-    Future.delayed(const Duration(milliseconds: 2500), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
-      }
-    });
+    _checkSession();
+  }
+
+  Future<void> _checkSession() async {
+    // Ensure base URL is loaded from preferences
+    await ApiService.loadBaseUrl();
+
+    // Check token after splash screen animation
+    await Future.delayed(const Duration(milliseconds: 2000));
+    if (!mounted) return;
+
+    final token = await ApiService.getToken();
+    if (!mounted) return;
+
+    if (token != null && token.isNotEmpty) {
+      Navigator.of(context).pushReplacementNamed('/patient');
+    } else {
+      Navigator.of(context).pushReplacementNamed('/login');
+    }
   }
 
   @override

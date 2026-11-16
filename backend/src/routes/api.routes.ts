@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
+import { PatientPortalController } from '../controllers/patientPortal.controller';
 import { AdmissionController } from '../controllers/admission.controller';
 import { EMRController } from '../controllers/emr.controller';
 import { PharmacyController } from '../controllers/pharmacy.controller';
@@ -26,6 +27,19 @@ authRouter.post('/register-pasien', authRateLimiter, AuthController.registerPasi
 authRouter.get('/roles', AuthController.getRoles);
 authRouter.get('/me', authenticateJwt, AuthController.me);
 apiRouter.use('/auth', authRouter);
+
+// ============================================================================
+// 1.1 PATIENT PORTAL MODULE (Protected & Strictly Scoped by JWT Token)
+// ============================================================================
+const patientRouter = Router();
+patientRouter.use(authenticateJwt);
+patientRouter.get('/profile', PatientPortalController.getProfile);
+patientRouter.get('/appointments', PatientPortalController.getAppointments);
+patientRouter.get('/queue', PatientPortalController.getAppointments);
+patientRouter.get('/history', PatientPortalController.getHistory);
+patientRouter.get('/bills', PatientPortalController.getBills);
+patientRouter.get('/dashboard', PatientPortalController.getDashboard);
+apiRouter.use('/patient', patientRouter);
 
 // ============================================================================
 // 2. ADMISSION & QUEUE MODULE (Admin, Direktur, Admisi)

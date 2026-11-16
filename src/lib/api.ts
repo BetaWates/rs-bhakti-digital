@@ -6,6 +6,29 @@
 export const TOKEN_STORAGE_KEY = 'rsbhakti_auth_token';
 
 /**
+ * Base API URL read from Vite environment (empty fallback uses dev proxy)
+ */
+export const API_BASE_URL: string =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, '') || '';
+
+/**
+ * Builds the full request URL using VITE_API_URL or relative endpoint for dev proxy
+ */
+export function buildApiUrl(endpoint: string): string {
+  if (/^https?:\/\//i.test(endpoint)) {
+    return endpoint;
+  }
+  if (!API_BASE_URL) {
+    return endpoint;
+  }
+  if (API_BASE_URL.endsWith('/api') && endpoint.startsWith('/api/')) {
+    return `${API_BASE_URL}${endpoint.slice(4)}`;
+  }
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${API_BASE_URL}${cleanEndpoint}`;
+}
+
+/**
  * Retrieve the active auth token from localStorage
  */
 export function getAuthToken(): string | null {
@@ -50,7 +73,7 @@ export async function apiFetch<T = any>(
 ): Promise<T> {
   const { params, headers: customHeaders, ...fetchOptions } = options;
 
-  let url = endpoint;
+  let url = buildApiUrl(endpoint);
   if (params) {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, val]) => {

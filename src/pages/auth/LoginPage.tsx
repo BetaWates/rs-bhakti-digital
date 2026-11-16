@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import logoOfficial from "@/assets/logo.png";
-import hospitalBg from "@/assets/hospital-building.jpg";
+import thmDrk from "@/assets/thmdrk.jpg";
+import thmLght from "@/assets/thmlght.jpg";
 import { useAuth, DEMO_CREDENTIALS } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { api } from "@/lib/api";
@@ -47,6 +48,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   // Global Theme Context
   const { theme, toggleTheme } = useTheme();
+  const leftBgImage = theme === "dark" ? thmDrk : thmLght;
 
   // Language Switcher: Clean 'id' or 'en'
   const [lang, setLang] = useState<Language>(() => {
@@ -325,16 +327,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       {/* =========================================================================
           1. LEFT PANEL: HIGH-CONTRAST HOSPITAL FACILITY SHOWCASE
          ========================================================================= */}
-      <section className="lg:w-1/2 relative bg-slate-950 text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-between overflow-hidden select-none min-h-[640px] lg:min-h-screen">
-        {/* Clearly Visible Hospital Facility Background Image with 50-60% Max Subtle Dark Overlay */}
+      <section className="lg:w-1/2 relative bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-between overflow-hidden select-none min-h-[640px] lg:min-h-screen transition-colors duration-300">
+        {/* Clearly Visible Hospital Facility Background Image with Theme-Adaptive Overlay */}
         <div className="absolute inset-0 pointer-events-none z-0">
           <img
-            src={hospitalBg}
+            src={leftBgImage}
             alt="RS Bhakti Digital Hospital Architecture"
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-center transition-opacity duration-300"
           />
-          {/* Subtle Dark Overlay (50-60% max) ensuring crisp white text legibility while the hospital image remains clearly visible */}
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-950/60 via-slate-900/50 to-blue-950/60" />
+          {/* Theme-Adaptive Overlay (Light mode: soft white/teal overlay; Dark mode: subtle dark overlay) ensuring crisp readability */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/90 via-slate-50/80 to-teal-50/85 dark:from-slate-950/75 dark:via-slate-900/65 dark:to-blue-950/75 transition-colors duration-300" />
         </div>
 
         {/* --- Top-Left Branding: Professionally Scaled Brand Lockup --- */}
@@ -345,10 +347,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             className="h-14 sm:h-16 w-auto flex-shrink-0 object-contain drop-shadow-lg"
           />
           <div className="flex flex-col justify-center">
-            <span className="font-extrabold text-xl sm:text-2xl text-white tracking-tight leading-tight">
+            <span className="font-extrabold text-xl sm:text-2xl text-slate-900 dark:text-white tracking-tight leading-tight">
               {t.hospitalName}
             </span>
-            <span className="text-xs sm:text-sm text-teal-300 font-medium tracking-wide mt-1">
+            <span className="text-xs sm:text-sm text-teal-700 dark:text-teal-300 font-semibold tracking-wide mt-1">
               {t.tagline}
             </span>
           </div>
@@ -356,75 +358,75 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
         {/* --- Main Headline & Sub-headline --- */}
         <div className="relative z-10 my-auto py-6 lg:py-0 max-w-xl">
-          <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-black tracking-tight text-white leading-[1.18]">
+          <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-black tracking-tight text-slate-900 dark:text-white leading-[1.18]">
             {t.headlinePart1} <br />
             {t.headlinePart2} <br />
-            <span className="text-teal-300 drop-shadow-[0_0_25px_rgba(45,212,191,0.4)]">
+            <span className="text-teal-600 dark:text-teal-300 drop-shadow-[0_0_25px_rgba(45,212,191,0.4)]">
               {t.headlineHighlight}
             </span>
           </h1>
 
-          <p className="mt-4 text-xs sm:text-sm text-slate-200/95 leading-relaxed font-normal max-w-lg">
+          <p className="mt-4 text-xs sm:text-sm text-slate-700 dark:text-slate-200/95 leading-relaxed font-normal max-w-lg">
             {t.description}
           </p>
 
-          {/* --- Four Dark, Semi-Transparent Service Cards --- */}
+          {/* --- Four Semi-Transparent Service Cards --- */}
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {/* Card 1: Rekam Medis (RME) */}
-            <div className="bg-[#0b243e]/75 hover:bg-[#0b243e]/90 border border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-lg flex items-start gap-3.5 group">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 border border-teal-400/30 group-hover:scale-105 transition-transform">
+            <div className="bg-white/85 dark:bg-[#0b243e]/75 hover:bg-white/95 dark:hover:bg-[#0b243e]/90 border border-teal-600/20 dark:border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-md dark:shadow-lg flex items-start gap-3.5 group">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 flex items-center justify-center shrink-0 border border-teal-200 dark:border-teal-400/30 group-hover:scale-105 transition-transform">
                 <Icon name="clipboard" size={18} />
               </div>
               <div>
-                <strong className="block text-sm font-bold text-white leading-tight">
+                <strong className="block text-sm font-bold text-slate-900 dark:text-white leading-tight">
                   {t.featureRmeTitle}
                 </strong>
-                <p className="text-xs text-slate-300/90 mt-1 leading-snug">
+                <p className="text-xs text-slate-600 dark:text-slate-300/90 mt-1 leading-snug">
                   {t.featureRmeDesc}
                 </p>
               </div>
             </div>
 
             {/* Card 2: Administrasi & Antrean */}
-            <div className="bg-[#0b243e]/75 hover:bg-[#0b243e]/90 border border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-lg flex items-start gap-3.5 group">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 border border-teal-400/30 group-hover:scale-105 transition-transform">
+            <div className="bg-white/85 dark:bg-[#0b243e]/75 hover:bg-white/95 dark:hover:bg-[#0b243e]/90 border border-teal-600/20 dark:border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-md dark:shadow-lg flex items-start gap-3.5 group">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 flex items-center justify-center shrink-0 border border-teal-200 dark:border-teal-400/30 group-hover:scale-105 transition-transform">
                 <Icon name="users" size={18} />
               </div>
               <div>
-                <strong className="block text-sm font-bold text-white leading-tight">
+                <strong className="block text-sm font-bold text-slate-900 dark:text-white leading-tight">
                   {t.featureAdmissionTitle}
                 </strong>
-                <p className="text-xs text-slate-300/90 mt-1 leading-snug">
+                <p className="text-xs text-slate-600 dark:text-slate-300/90 mt-1 leading-snug">
                   {t.featureAdmissionDesc}
                 </p>
               </div>
             </div>
 
             {/* Card 3: Instalasi Farmasi */}
-            <div className="bg-[#0b243e]/75 hover:bg-[#0b243e]/90 border border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-lg flex items-start gap-3.5 group">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 border border-teal-400/30 group-hover:scale-105 transition-transform">
+            <div className="bg-white/85 dark:bg-[#0b243e]/75 hover:bg-white/95 dark:hover:bg-[#0b243e]/90 border border-teal-600/20 dark:border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-md dark:shadow-lg flex items-start gap-3.5 group">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 flex items-center justify-center shrink-0 border border-teal-200 dark:border-teal-400/30 group-hover:scale-105 transition-transform">
                 <Icon name="pill" size={18} />
               </div>
               <div>
-                <strong className="block text-sm font-bold text-white leading-tight">
+                <strong className="block text-sm font-bold text-slate-900 dark:text-white leading-tight">
                   {t.featurePharmacyTitle}
                 </strong>
-                <p className="text-xs text-slate-300/90 mt-1 leading-snug">
+                <p className="text-xs text-slate-600 dark:text-slate-300/90 mt-1 leading-snug">
                   {t.featurePharmacyDesc}
                 </p>
               </div>
             </div>
 
             {/* Card 4: Kasir & Billing */}
-            <div className="bg-[#0b243e]/75 hover:bg-[#0b243e]/90 border border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-lg flex items-start gap-3.5 group">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 border border-teal-400/30 group-hover:scale-105 transition-transform">
+            <div className="bg-white/85 dark:bg-[#0b243e]/75 hover:bg-white/95 dark:hover:bg-[#0b243e]/90 border border-teal-600/20 dark:border-teal-500/30 rounded-2xl p-4 backdrop-blur-md transition-all shadow-md dark:shadow-lg flex items-start gap-3.5 group">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 flex items-center justify-center shrink-0 border border-teal-200 dark:border-teal-400/30 group-hover:scale-105 transition-transform">
                 <Icon name="wallet" size={18} />
               </div>
               <div>
-                <strong className="block text-sm font-bold text-white leading-tight">
+                <strong className="block text-sm font-bold text-slate-900 dark:text-white leading-tight">
                   {t.featureBillingTitle}
                 </strong>
-                <p className="text-xs text-slate-300/90 mt-1 leading-snug">
+                <p className="text-xs text-slate-600 dark:text-slate-300/90 mt-1 leading-snug">
                   {t.featureBillingDesc}
                 </p>
               </div>
@@ -433,16 +435,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         </div>
 
         {/* --- Left Footer: Compliance & Accreditation Note --- */}
-        <div className="relative z-10 pt-6 border-t border-teal-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-300">
+        <div className="relative z-10 pt-6 border-t border-slate-300/60 dark:border-teal-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300">
           <div className="flex items-center gap-2">
-            <Icon name="shield" size={15} className="text-teal-400" />
+            <Icon name="shield" size={15} className="text-teal-600 dark:text-teal-400" />
             <span>{t.copyright}</span>
             <span className="text-teal-500/40">•</span>
-            <span className="text-[11px] text-slate-400 font-mono">{t.version}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{t.version}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline text-teal-500/50">•</span>
-            <span className="font-medium text-teal-300">
+            <span className="font-medium text-teal-700 dark:text-teal-300">
               {t.complianceBadge}
             </span>
           </div>

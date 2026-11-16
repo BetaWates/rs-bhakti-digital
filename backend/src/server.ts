@@ -10,6 +10,7 @@ import path from 'path';
 // Ensure .env is loaded regardless of process working directory
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+import cors from 'cors';
 import express from 'express';
 import { prisma } from './database/client';
 import { apiRouter } from './routes/api.routes';
@@ -21,17 +22,28 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Enterprise CORS Headers
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-});
+// Enterprise CORS Allowlist Configuration
+const rawCorsOrigins = process.env.CORS_ORIGINS || '';
+const allowedOrigins = rawCorsOrigins
+  ? rawCorsOrigins.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : ['http://localhost:8443', 'http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:8443'];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Client'],
+    optionsSuccessStatus: 200,
+  })
+);
 
 // Root Health & System Diagnostic Endpoint
 app.get('/health', async (_req, res) => {
@@ -107,7 +119,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 export default app;
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`[RS Bhakti Digital SIMRS API] Server active on port ${PORT}`);
     console.log(`- Health Check: http://localhost:${PORT}/health`);
