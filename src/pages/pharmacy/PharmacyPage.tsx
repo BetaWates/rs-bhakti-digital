@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Medicine, Prescription } from '@/lib/types';
-import { MOCK_MEDICINES } from '@/lib/mock-data';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { Icon } from '@/components/shared/Icon';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const initialPrescriptions: Prescription[] = [
   {
@@ -106,8 +107,14 @@ const initialPrescriptions: Prescription[] = [
 ];
 
 export function PharmacyPage() {
+  const { currentRole, user } = useAuth();
+  const role = ((currentRole || user?.role_id || user?.role || '') as string).toLowerCase();
+  const canManageMedicines = role === 'admin' || role === 'apoteker' || role === 'pharmacy';
+
   const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions);
-  const [medicines, setMedicines] = useState<Medicine[]>(MOCK_MEDICINES);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [loadingMeds, setLoadingMeds] = useState(true);
+  const [medsError, setMedsError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'resep' | 'stok'>('resep');
 
   // Search & Filter State
@@ -118,10 +125,13 @@ export function PharmacyPage() {
   // Selected Prescription for Dispensing
   const [selectedRx, setSelectedRx] = useState<Prescription | null>(null);
 
-  // Add Medicine Modal State
-  const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-  const [newMed, setNewMed] = useState({
+  // Add / Edit Medicine Modal State
+  const [showMedicineModal, setShowMedicineModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [medForm, setMedForm] = useState({
+    code: '',
     name: '',
     category: 'Analgesik & Antipiretik',
     dosage: '',
@@ -132,10 +142,57 @@ export function PharmacyPage() {
     expiryDate: '2027-12-31',
   });
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
+  // Delete Medicine Confirmation State
+  const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
   };
+
+  // Load medicines from backend API
+  const fetchMedicines = useCallback(async () => {
+    try {
+      setLoadingMeds(true);
+      setMedsError(null);
+      const res = await apiFetch<{ success: boolean; data: any[] }>('/api/pharmacy/medicines');
+      if (res && Array.isArray(res.data)) {
+        const mapped: Medicine[] = res.data.map((item) => ({
+          id: item.id,
+          kode_obat: item.kode_obat,
+          nama_obat: item.nama_obat,
+          kategori: item.kategori,
+          stok: Number(item.stok ?? 0),
+          harga_satuan: Number(item.harga_satuan ?? 0),
+          expired_date: item.expired_date,
+          // UI compatibility aliases
+          name: item.nama_obat,
+          category: item.kategori,
+          stock: Number(item.stok ?? 0),
+          minStock: item.minStock ?? 20,
+          price: Number(item.harga_satuan ?? 0),
+          expiryDate: item.expired_date,
+          dosage: item.dosage || 'Tablet',
+          unit: item.unit || 'Strip',
+        }));
+        setMedicines(mapped);
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal memuat katalog obat dari server SIMRS.';
+      setMedsError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setLoadingMeds(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMedicines();
+  }, [fetchMedicines]);
 
   // Dispense workflow action
   const handleUpdateRxStatus = (rxId: string, nextStatus: Prescription['status']) => {
@@ -148,37 +205,12 @@ export function PharmacyPage() {
     showToast(`Status resep berhasil diperbarui menjadi "${nextStatus}"`);
   };
 
-  // Add medicine
-  const handleAddMedicine = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMed.name.trim() || !newMed.dosage.trim()) {
-      alert('Nama obat dan sediaan wajib diisi!');
-      return;
-    }
-
-    const medCode = `MED-${Date.now().toString().slice(-4)}`;
-    const created: Medicine = {
-      id: medCode,
-      kode_obat: medCode,
-      nama_obat: newMed.name,
-      kategori: newMed.category,
-      stok: Number(newMed.stock),
-      harga_satuan: Number(newMed.price),
-      expired_date: newMed.expiryDate,
-      name: newMed.name,
-      category: newMed.category,
-      dosage: newMed.dosage,
-      unit: newMed.unit,
-      stock: Number(newMed.stock),
-      minStock: Number(newMed.minStock),
-      price: Number(newMed.price),
-      expiryDate: newMed.expiryDate,
-    };
-
-    setMedicines([created, ...medicines]);
-    setShowAddMedicineModal(false);
-    showToast(`Obat ${created.name} berhasil ditambahkan ke inventaris.`);
-    setNewMed({
+  // Open modal in Add mode
+  const handleOpenAddModal = () => {
+    setIsEditing(false);
+    setEditingId(null);
+    setMedForm({
+      code: '',
       name: '',
       category: 'Analgesik & Antipiretik',
       dosage: '',
@@ -188,6 +220,95 @@ export function PharmacyPage() {
       price: 15000,
       expiryDate: '2027-12-31',
     });
+    setShowMedicineModal(true);
+  };
+
+  // Open modal in Edit mode
+  const handleOpenEditModal = (med: Medicine) => {
+    setIsEditing(true);
+    setEditingId(med.id);
+    setMedForm({
+      code: med.kode_obat || med.id || '',
+      name: med.nama_obat || med.name || '',
+      category: med.kategori || med.category || 'Analgesik & Antipiretik',
+      dosage: med.dosage || 'Tablet',
+      unit: med.unit || 'Strip (10 Tablet)',
+      stock: med.stok ?? med.stock ?? 0,
+      minStock: med.minStock ?? 20,
+      price: med.harga_satuan ?? med.price ?? 0,
+      expiryDate: med.expired_date || med.expiryDate || new Date().toISOString().split('T')[0],
+    });
+    setShowMedicineModal(true);
+  };
+
+  // Submit Add or Edit
+  const handleSaveMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!medForm.name.trim()) {
+      showToast('Nama obat wajib diisi!', 'error');
+      return;
+    }
+    if (!medForm.code.trim()) {
+      showToast('Kode obat wajib diisi!', 'error');
+      return;
+    }
+    if (!medForm.expiryDate) {
+      showToast('Tanggal kadaluarsa wajib diisi!', 'error');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const payload = {
+        kode_obat: medForm.code.trim(),
+        nama_obat: medForm.name.trim(),
+        kategori: medForm.category.trim(),
+        stok: Number(medForm.stock),
+        harga_satuan: Number(medForm.price),
+        expired_date: medForm.expiryDate,
+      };
+
+      if (isEditing && editingId) {
+        await apiFetch(`/api/pharmacy/medicines/${editingId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        showToast(`Data obat "${medForm.name}" berhasil diperbarui.`);
+      } else {
+        await apiFetch('/api/pharmacy/medicines', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        showToast(`Obat "${medForm.name}" berhasil ditambahkan ke inventaris.`);
+      }
+
+      setShowMedicineModal(false);
+      await fetchMedicines();
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal menyimpan data obat.';
+      showToast(msg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Confirm delete action
+  const handleConfirmDelete = async () => {
+    if (!medicineToDelete) return;
+    try {
+      setIsDeleting(true);
+      await apiFetch(`/api/pharmacy/medicines/${medicineToDelete.id}`, {
+        method: 'DELETE',
+      });
+      showToast(`Obat "${medicineToDelete.nama_obat || medicineToDelete.name}" berhasil dihapus.`);
+      setMedicineToDelete(null);
+      await fetchMedicines();
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal menghapus obat.';
+      showToast(msg, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Filtered lists
@@ -201,9 +322,12 @@ export function PharmacyPage() {
   });
 
   const filteredMedicines = medicines.filter((m) => {
-    const matchSearch =
-      (m.name || m.nama_obat || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (m.category || m.kategori || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const code = (m.kode_obat || m.id || '').toLowerCase();
+    const name = (m.name || m.nama_obat || '').toLowerCase();
+    const cat = (m.category || m.kategori || '').toLowerCase();
+    const q = searchTerm.toLowerCase();
+
+    const matchSearch = name.includes(q) || code.includes(q) || cat.includes(q);
     const matchCategory =
       categoryFilter === 'Semua Kategori' || (m.category || m.kategori) === categoryFilter;
     return matchSearch && matchCategory;
@@ -216,10 +340,14 @@ export function PharmacyPage() {
   return (
     <div className="space-y-6">
       {/* Toast Feedback */}
-      {toastMessage && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-teal-600 px-4 py-3 text-white shadow-lg text-xs font-semibold flex items-center gap-2 animate-bounce">
-          <Icon name="check" size={16} />
-          <span>{toastMessage}</span>
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-white shadow-lg text-xs font-semibold flex items-center gap-2 animate-bounce ${
+            toast.type === 'error' ? 'bg-rose-600' : 'bg-teal-600'
+          }`}
+        >
+          <Icon name={toast.type === 'error' ? 'alertCircle' : 'check'} size={16} />
+          <span>{toast.message}</span>
         </div>
       )}
 
@@ -233,16 +361,18 @@ export function PharmacyPage() {
             Manajemen antrian e-Resep, peracikan obat, dan monitoring stok formularium
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setShowAddMedicineModal(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-teal-700 transition"
-          >
-            <Icon name="plus" size={16} />
-            <span>Tambah Obat Baru</span>
-          </button>
-        </div>
+        {canManageMedicines && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-teal-700 transition cursor-pointer"
+            >
+              <Icon name="plus" size={16} />
+              <span>Tambah Obat Baru</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards */}
@@ -429,7 +559,7 @@ export function PharmacyPage() {
               />
               <input
                 type="text"
-                placeholder="Cari nama obat, kategori formularium..."
+                placeholder="Cari nama obat, kode, kategori formularium..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-2 text-xs focus:border-teal-500 focus:outline-none"
@@ -448,62 +578,139 @@ export function PharmacyPage() {
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-100 bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Nama Obat</th>
-                  <th className="px-4 py-3">Kategori</th>
-                  <th className="px-4 py-3">Kekuatan & Sediaan</th>
-                  <th className="px-4 py-3">Satuan</th>
-                  <th className="px-4 py-3">Sisa Stok</th>
-                  <th className="px-4 py-3">Harga Satuan</th>
-                  <th className="px-4 py-3">Kadaluarsa</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredMedicines.map((med) => {
-                  const isLow = (med.stock ?? med.stok ?? 0) <= (med.minStock ?? 20);
-                  return (
-                    <tr key={med.id} className="hover:bg-slate-50/80 transition">
-                      <td className="px-4 py-3.5 font-bold text-slate-800">{med.name || med.nama_obat}</td>
-                      <td className="px-4 py-3.5 text-slate-600">{med.category || med.kategori}</td>
-                      <td className="px-4 py-3.5 text-slate-700">{med.dosage || med.form || 'Tablet'}</td>
-                      <td className="px-4 py-3.5 text-slate-500">{med.unit || 'Strip'}</td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={`font-bold ${
-                            isLow ? 'text-rose-600' : 'text-slate-800'
-                          }`}
-                        >
-                          {med.stock ?? med.stok ?? 0}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block">
-                          Min: {med.minStock ?? 20}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 font-medium text-slate-700">
-                        {formatCurrency(med.price || med.harga_satuan || 0)}
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-500">{med.expiryDate || med.expired_date}</td>
-                      <td className="px-4 py-3.5">
-                        {isLow ? (
-                          <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-600 border border-rose-200">
-                            Stok Menipis
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600 border border-emerald-200">
-                            Aman
-                          </span>
-                        )}
+          {loadingMeds ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-2xs">
+              <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500">
+                <Icon name="refreshCw" size={20} className="animate-spin text-teal-600" />
+                <span>Memuat data katalog obat dari server...</span>
+              </div>
+            </div>
+          ) : medsError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-6 text-center shadow-2xs">
+              <div className="flex flex-col items-center gap-2">
+                <Icon name="alertCircle" size={24} className="text-rose-600" />
+                <p className="text-xs font-semibold text-rose-700">{medsError}</p>
+                <button
+                  type="button"
+                  onClick={() => fetchMedicines()}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-rose-700 transition"
+                >
+                  <Icon name="refreshCw" size={14} />
+                  <span>Coba Lagi</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-100 bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Nama Obat</th>
+                    <th className="px-4 py-3">Kategori</th>
+                    <th className="px-4 py-3">Kekuatan & Sediaan</th>
+                    <th className="px-4 py-3">Satuan</th>
+                    <th className="px-4 py-3">Sisa Stok</th>
+                    <th className="px-4 py-3">Harga Satuan</th>
+                    <th className="px-4 py-3">Kadaluarsa</th>
+                    <th className="px-4 py-3">Status</th>
+                    {canManageMedicines && (
+                      <th className="px-4 py-3 text-right">Aksi</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredMedicines.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={canManageMedicines ? 9 : 8}
+                        className="px-4 py-12 text-center text-xs text-slate-400"
+                      >
+                        Tidak ada data obat yang sesuai dengan pencarian atau filter.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    filteredMedicines.map((med) => {
+                      const isLow = (med.stock ?? med.stok ?? 0) <= (med.minStock ?? 20);
+                      return (
+                        <tr key={med.id} className="hover:bg-slate-50/80 transition">
+                          <td className="px-4 py-3.5">
+                            <div className="font-bold text-slate-800">
+                              {med.name || med.nama_obat}
+                            </div>
+                            <span className="text-[11px] text-teal-700 font-mono font-medium block">
+                              {med.kode_obat || med.id}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-600">
+                            {med.category || med.kategori}
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-700">
+                            {med.dosage || med.form || 'Tablet'}
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-500">
+                            {med.unit || 'Strip'}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={`font-bold ${
+                                isLow ? 'text-rose-600' : 'text-slate-800'
+                              }`}
+                            >
+                              {med.stock ?? med.stok ?? 0}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block">
+                              Min: {med.minStock ?? 20}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 font-medium text-slate-700">
+                            {formatCurrency(med.price || med.harga_satuan || 0)}
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-500">
+                            {med.expiryDate || med.expired_date}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {isLow ? (
+                              <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-600 border border-rose-200">
+                                Stok Menipis
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600 border border-emerald-200">
+                                Aman
+                              </span>
+                            )}
+                          </td>
+                          {canManageMedicines && (
+                            <td className="px-4 py-3.5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditModal(med)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-teal-700 transition"
+                                  title="Edit Obat"
+                                >
+                                  <Icon name="edit" size={13} />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setMedicineToDelete(med)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
+                                  title="Hapus Obat"
+                                >
+                                  <Icon name="trash" size={13} />
+                                  <span>Hapus</span>
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -653,24 +860,39 @@ export function PharmacyPage() {
         </div>
       )}
 
-      {/* Modal Tambah Obat */}
-      {showAddMedicineModal && (
+      {/* Modal Tambah / Edit Obat */}
+      {showMedicineModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 bg-slate-50">
               <h3 className="text-base font-bold text-slate-800">
-                Tambah Formularium Obat Baru
+                {isEditing ? 'Edit Formularium Obat' : 'Tambah Formularium Obat Baru'}
               </h3>
               <button
                 type="button"
-                onClick={() => setShowAddMedicineModal(false)}
+                disabled={isSubmitting}
+                onClick={() => setShowMedicineModal(false)}
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
               >
                 <Icon name="close" size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleAddMedicine} className="p-6 space-y-3.5 text-xs">
+            <form onSubmit={handleSaveMedicine} className="p-6 space-y-3.5 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Kode Obat *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: MED-AMLO-5"
+                  value={medForm.code}
+                  onChange={(e) => setMedForm({ ...medForm, code: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none font-mono"
+                />
+              </div>
+
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
                   Nama Obat & Senyawa Aktif *
@@ -678,9 +900,9 @@ export function PharmacyPage() {
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Cefixime Trihydrate 100 mg"
-                  value={newMed.name}
-                  onChange={(e) => setNewMed({ ...newMed, name: e.target.value })}
+                  placeholder="Contoh: Amlodipine Besilate 5 mg"
+                  value={medForm.name}
+                  onChange={(e) => setMedForm({ ...medForm, name: e.target.value })}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                 />
               </div>
@@ -689,28 +911,32 @@ export function PharmacyPage() {
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Kategori</label>
                   <select
-                    value={newMed.category}
-                    onChange={(e) => setNewMed({ ...newMed, category: e.target.value })}
+                    value={medForm.category}
+                    onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   >
                     <option value="Analgesik & Antipiretik">Analgesik & Antipiretik</option>
+                    <option value="Antibiotik Penicilin">Antibiotik Penicilin</option>
                     <option value="Antibiotik & Antimikroba">Antibiotik & Antimikroba</option>
+                    <option value="Antihipertensi">Antihipertensi</option>
+                    <option value="Antikolesterol">Antikolesterol</option>
                     <option value="Kardiovaskular & Antihipertensi">Kardiovaskular</option>
-                    <option value="Antidiabetes Oral">Antidiabetes</option>
+                    <option value="Antidiabetes Oral">Antidiabetes Oral</option>
                     <option value="Gastrointestinal">Gastrointestinal</option>
+                    <option value="Antihistamin">Antihistamin</option>
                     <option value="Suplemen & Vitamin">Suplemen & Vitamin</option>
+                    <option value="Umum">Umum</option>
                   </select>
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
-                    Kekuatan Sediaan *
+                    Kekuatan Sediaan
                   </label>
                   <input
                     type="text"
-                    required
-                    placeholder="Contoh: 100 mg kapsul"
-                    value={newMed.dosage}
-                    onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })}
+                    placeholder="Contoh: 5 mg tablet"
+                    value={medForm.dosage}
+                    onChange={(e) => setMedForm({ ...medForm, dosage: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
                 </div>
@@ -721,20 +947,23 @@ export function PharmacyPage() {
                   <label className="font-semibold text-slate-700 block mb-1">Satuan Kemasan</label>
                   <input
                     type="text"
-                    value={newMed.unit}
-                    onChange={(e) => setNewMed({ ...newMed, unit: e.target.value })}
+                    placeholder="Contoh: Strip (10 Tablet)"
+                    value={medForm.unit}
+                    onChange={(e) => setMedForm({ ...medForm, unit: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
-                    Harga Jual Satuan (IDR)
+                    Harga Satuan (IDR) *
                   </label>
                   <input
                     type="number"
-                    value={newMed.price}
+                    min="0"
+                    required
+                    value={medForm.price}
                     onChange={(e) =>
-                      setNewMed({ ...newMed, price: Number(e.target.value) })
+                      setMedForm({ ...medForm, price: Number(e.target.value) })
                     }
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
@@ -743,12 +972,16 @@ export function PharmacyPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Stok Awal</label>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    {isEditing ? 'Stok Saat Ini *' : 'Stok Awal *'}
+                  </label>
                   <input
                     type="number"
-                    value={newMed.stock}
+                    min="0"
+                    required
+                    value={medForm.stock}
                     onChange={(e) =>
-                      setNewMed({ ...newMed, stock: Number(e.target.value) })
+                      setMedForm({ ...medForm, stock: Number(e.target.value) })
                     }
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
@@ -757,21 +990,23 @@ export function PharmacyPage() {
                   <label className="font-semibold text-slate-700 block mb-1">Min. Stok</label>
                   <input
                     type="number"
-                    value={newMed.minStock}
+                    min="0"
+                    value={medForm.minStock}
                     onChange={(e) =>
-                      setNewMed({ ...newMed, minStock: Number(e.target.value) })
+                      setMedForm({ ...medForm, minStock: Number(e.target.value) })
                     }
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
-                    Tgl Kadaluarsa
+                    Tgl Kadaluarsa *
                   </label>
                   <input
                     type="date"
-                    value={newMed.expiryDate}
-                    onChange={(e) => setNewMed({ ...newMed, expiryDate: e.target.value })}
+                    required
+                    value={medForm.expiryDate}
+                    onChange={(e) => setMedForm({ ...medForm, expiryDate: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   />
                 </div>
@@ -780,19 +1015,71 @@ export function PharmacyPage() {
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowAddMedicineModal(false)}
-                  className="rounded-lg bg-slate-100 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-200 transition"
+                  disabled={isSubmitting}
+                  onClick={() => setShowMedicineModal(false)}
+                  className="rounded-lg bg-slate-100 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-teal-600 px-5 py-2 font-bold text-white hover:bg-teal-700 transition"
+                  disabled={isSubmitting}
+                  className="rounded-lg bg-teal-600 px-5 py-2 font-bold text-white hover:bg-teal-700 transition disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Simpan Obat
+                  {isSubmitting && <Icon name="refreshCw" size={14} className="animate-spin" />}
+                  <span>
+                    {isSubmitting
+                      ? (isEditing ? 'Menyimpan...' : 'Menambahkan...')
+                      : (isEditing ? 'Simpan Perubahan' : 'Simpan Obat')}
+                  </span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Obat */}
+      {medicineToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
+            <div className="p-6 text-center space-y-4">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                <Icon name="trash" size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  Hapus Formularium Obat
+                </h3>
+                <p className="text-xs text-slate-500 mt-2">
+                  Apakah Anda yakin ingin menghapus{' '}
+                  <span className="font-bold text-slate-800">
+                    {medicineToDelete.nama_obat || medicineToDelete.name}
+                  </span>{' '}
+                  ({medicineToDelete.kode_obat || medicineToDelete.id}) dari inventaris SIMRS?
+                  Tindakan ini tidak dapat dibatalkan.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setMedicineToDelete(null)}
+                  className="rounded-lg bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="rounded-lg bg-rose-600 px-5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isDeleting && <Icon name="refreshCw" size={14} className="animate-spin" />}
+                  <span>{isDeleting ? 'Menghapus...' : 'Ya, Hapus Obat'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

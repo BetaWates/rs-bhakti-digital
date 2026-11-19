@@ -4,6 +4,7 @@
 // ============================================================================
 
 import type { Request, Response } from 'express';
+import { prisma } from '../database/client';
 import {
   SEED_MEDICINES,
   SEED_PRESCRIPTIONS,
@@ -18,39 +19,93 @@ let medicinesStore: MedicineEntity[] = [...SEED_MEDICINES as any];
 let prescriptionsStore: PrescriptionEntity[] = [...SEED_PRESCRIPTIONS as any];
 let detailsStore: PrescriptionDetailEntity[] = [...SEED_PRESCRIPTION_DETAILS as any];
 
+/**
+ * Format Prisma Medicine records to match frontend expectations & add calculated warning flags
+ */
+function formatMedicine(m: any) {
+  const expDate = new Date(m.expired_date);
+  const now = new Date();
+  const monthsToExpiry = (expDate.getFullYear() - now.getFullYear()) * 12 + (expDate.getMonth() - now.getMonth());
+
+  return {
+    id: m.id,
+    kode_obat: m.kode_obat,
+    nama_obat: m.nama_obat,
+    kategori: m.kategori,
+    stok: m.stok,
+    harga_satuan: Number(m.harga_satuan),
+    expired_date: m.expired_date instanceof Date
+      ? m.expired_date.toISOString().split('T')[0]
+      : String(m.expired_date).split('T')[0],
+    is_low_stock: m.stok <= 50,
+    is_expired: expDate < now,
+    is_near_expiry: monthsToExpiry <= 6 && expDate >= now,
+    months_to_expiry: monthsToExpiry,
+    ...(m.createdAt && { createdAt: m.createdAt }),
+    ...(m.updatedAt && { updatedAt: m.updatedAt }),
+  };
+}
+
+/**
+ * Generate sequential medicine id adhering to seed data pattern (med-01, med-02, ...)
+ */
+async function generateMedicineId(): Promise<string> {
+  const medicines = await prisma.medicine.findMany({
+    select: { id: true },
+  });
+
+  let maxNum = 0;
+  for (const m of medicines) {
+    const match = m.id.match(/^med-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  }
+
+  const nextNum = maxNum + 1;
+  return `med-${String(nextNum).padStart(2, '0')}`;
+}
+
 export const PharmacyController = {
   /**
-   * Get medicines inventory with stock status and expiration alert flags
+   * Get medicines inventory from Prisma with stock status and expiration alert flags
    */
   getMedicines: async (req: Request, res: Response): Promise<void> => {
     try {
       const { kategori, stock_warning, search } = req.query;
 
-      let list = [...medicinesStore];
+      const where: any = {};
+      const conditions: any[] = [];
 
       if (search) {
-        const q = (search as string).toLowerCase();
-        list = list.filter(
-          (m) => m.nama_obat.toLowerCase().includes(q) || m.kode_obat.toLowerCase().includes(q)
-        );
+        const q = String(search).trim();
+        conditions.push({
+          OR: [
+            { nama_obat: { contains: q, mode: 'insensitive' } },
+            { kode_obat: { contains: q, mode: 'insensitive' } },
+          ],
+        });
       }
 
       if (kategori) {
-        list = list.filter((m) => m.kategori.toLowerCase() === (kategori as string).toLowerCase());
+        conditions.push({
+          kategori: { equals: String(kategori).trim(), mode: 'insensitive' },
+        });
       }
 
-      const now = new Date();
-      const enriched = list.map((m) => {
-        const expDate = new Date(m.expired_date);
-        const monthsToExpiry = (expDate.getFullYear() - now.getFullYear()) * 12 + (expDate.getMonth() - now.getMonth());
-        return {
-          ...m,
-          is_low_stock: m.stok <= 50,
-          is_expired: expDate < now,
-          is_near_expiry: monthsToExpiry <= 6 && expDate >= now,
-          months_to_expiry: monthsToExpiry,
-        };
+      if (conditions.length > 0) {
+        where.AND = conditions;
+      }
+
+      const medicines = await prisma.medicine.findMany({
+        where,
+        orderBy: { id: 'asc' },
       });
+
+      const enriched = medicines.map(formatMedicine);
 
       if (stock_warning === 'true') {
         const warnings = enriched.filter((m) => m.is_low_stock || m.is_near_expiry);
@@ -62,6 +117,334 @@ export const PharmacyController = {
         success: true,
         total: enriched.length,
         data: enriched,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  },
+
+  /**
+   * Get medicine by ID from Prisma
+   */
+  getMedicineById: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const medicine = await prisma.medicine.findUnique({
+        where: { id },
+      });
+
+      if (!medicine) {
+        res.status(404).json({
+          success: false,
+          message: 'Data obat tidak ditemukan.',
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        data: formatMedicine(medicine),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  },
+
+  /**
+   * Create new medicine in Prisma
+   */
+  createMedicine: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { kode_obat, nama_obat, kategori, stok, harga_satuan, expired_date } = req.body;
+
+      if (!nama_obat || typeof nama_obat !== 'string' || !nama_obat.trim()) {
+        res.status(400).json({
+          success: false,
+          message: 'Nama obat wajib diisi.',
+        });
+        return;
+      }
+
+      if (!kode_obat || typeof kode_obat !== 'string' || !kode_obat.trim()) {
+        res.status(400).json({
+          success: false,
+          message: 'Kode obat wajib diisi.',
+        });
+        return;
+      }
+
+      const parsedStok = Number(stok);
+      if (
+        stok === undefined ||
+        stok === null ||
+        typeof stok === 'boolean' ||
+        isNaN(parsedStok) ||
+        !Number.isInteger(parsedStok) ||
+        parsedStok < 0
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'Stok obat harus berupa bilangan bulat lebih besar atau sama dengan 0.',
+        });
+        return;
+      }
+
+      const parsedHarga = Number(harga_satuan);
+      if (
+        harga_satuan === undefined ||
+        harga_satuan === null ||
+        typeof harga_satuan === 'boolean' ||
+        isNaN(parsedHarga) ||
+        parsedHarga < 0
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'Harga satuan harus berupa angka lebih besar atau sama dengan 0.',
+        });
+        return;
+      }
+
+      if (!expired_date || isNaN(new Date(expired_date).getTime())) {
+        res.status(400).json({
+          success: false,
+          message: 'Tanggal kedaluwarsa (expired_date) harus berupa tanggal yang valid.',
+        });
+        return;
+      }
+
+      const trimmedKode = kode_obat.trim();
+      const existing = await prisma.medicine.findUnique({
+        where: { kode_obat: trimmedKode },
+      });
+
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          message: `Obat dengan kode '${trimmedKode}' sudah terdaftar.`,
+        });
+        return;
+      }
+
+      const id = await generateMedicineId();
+
+      const newMedicine = await prisma.medicine.create({
+        data: {
+          id,
+          kode_obat: trimmedKode,
+          nama_obat: nama_obat.trim(),
+          kategori: (kategori && String(kategori).trim()) || 'Umum',
+          stok: parsedStok,
+          harga_satuan: parsedHarga,
+          expired_date: new Date(expired_date),
+        },
+      });
+
+      medicinesStore.push(formatMedicine(newMedicine) as any);
+
+      res.status(201).json({
+        success: true,
+        message: 'Data obat baru berhasil ditambahkan.',
+        data: formatMedicine(newMedicine),
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        res.status(409).json({
+          success: false,
+          message: 'Kode obat sudah digunakan oleh obat lain.',
+        });
+        return;
+      }
+      res.status(500).json({ success: false, message: err.message });
+    }
+  },
+
+  /**
+   * Update existing medicine in Prisma
+   */
+  updateMedicine: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { kode_obat, nama_obat, kategori, stok, harga_satuan, expired_date } = req.body;
+
+      const existing = await prisma.medicine.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          message: 'Data obat tidak ditemukan.',
+        });
+        return;
+      }
+
+      const updateData: any = {};
+
+      if (nama_obat !== undefined) {
+        if (!nama_obat || typeof nama_obat !== 'string' || !nama_obat.trim()) {
+          res.status(400).json({
+            success: false,
+            message: 'Nama obat tidak boleh kosong.',
+          });
+          return;
+        }
+        updateData.nama_obat = nama_obat.trim();
+      }
+
+      if (kode_obat !== undefined) {
+        if (!kode_obat || typeof kode_obat !== 'string' || !kode_obat.trim()) {
+          res.status(400).json({
+            success: false,
+            message: 'Kode obat tidak boleh kosong.',
+          });
+          return;
+        }
+        const trimmedKode = kode_obat.trim();
+        const duplicate = await prisma.medicine.findFirst({
+          where: {
+            kode_obat: trimmedKode,
+            NOT: { id },
+          },
+        });
+        if (duplicate) {
+          res.status(409).json({
+            success: false,
+            message: `Obat dengan kode '${trimmedKode}' sudah terdaftar.`,
+          });
+          return;
+        }
+        updateData.kode_obat = trimmedKode;
+      }
+
+      if (kategori !== undefined) {
+        updateData.kategori = String(kategori).trim();
+      }
+
+      if (stok !== undefined) {
+        const parsedStok = Number(stok);
+        if (typeof stok === 'boolean' || isNaN(parsedStok) || !Number.isInteger(parsedStok) || parsedStok < 0) {
+          res.status(400).json({
+            success: false,
+            message: 'Stok obat harus berupa bilangan bulat lebih besar atau sama dengan 0.',
+          });
+          return;
+        }
+        updateData.stok = parsedStok;
+      }
+
+      if (harga_satuan !== undefined) {
+        const parsedHarga = Number(harga_satuan);
+        if (typeof harga_satuan === 'boolean' || isNaN(parsedHarga) || parsedHarga < 0) {
+          res.status(400).json({
+            success: false,
+            message: 'Harga satuan harus berupa angka lebih besar atau sama dengan 0.',
+          });
+          return;
+        }
+        updateData.harga_satuan = parsedHarga;
+      }
+
+      if (expired_date !== undefined) {
+        if (!expired_date || isNaN(new Date(expired_date).getTime())) {
+          res.status(400).json({
+            success: false,
+            message: 'Tanggal kedaluwarsa (expired_date) harus berupa tanggal yang valid.',
+          });
+          return;
+        }
+        updateData.expired_date = new Date(expired_date);
+      }
+
+      const updated = await prisma.medicine.update({
+        where: { id },
+        data: updateData,
+      });
+
+      const storeIdx = medicinesStore.findIndex((m) => m.id === id);
+      if (storeIdx !== -1) {
+        medicinesStore[storeIdx] = {
+          ...medicinesStore[storeIdx],
+          ...formatMedicine(updated),
+        } as any;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Data obat berhasil diperbarui.',
+        data: formatMedicine(updated),
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        res.status(409).json({
+          success: false,
+          message: 'Kode obat sudah digunakan oleh obat lain.',
+        });
+        return;
+      }
+      res.status(500).json({ success: false, message: err.message });
+    }
+  },
+
+  /**
+   * Delete medicine from Prisma with relational constraint checks
+   */
+  deleteMedicine: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const medicine = await prisma.medicine.findUnique({
+        where: { id },
+        include: {
+          _count: {
+            select: { prescriptionDetails: true },
+          },
+        },
+      });
+
+      if (!medicine) {
+        res.status(404).json({
+          success: false,
+          message: 'Data obat tidak ditemukan.',
+        });
+        return;
+      }
+
+      const isReferencedInStore = detailsStore.some((d) => d.medicine_id === id);
+      if (medicine._count.prescriptionDetails > 0 || isReferencedInStore) {
+        res.status(409).json({
+          success: false,
+          message: 'Obat tidak dapat dihapus karena masih digunakan pada data resep obat.',
+        });
+        return;
+      }
+
+      try {
+        await prisma.medicine.delete({
+          where: { id },
+        });
+      } catch (deleteErr: any) {
+        if (deleteErr.code === 'P2003') {
+          res.status(409).json({
+            success: false,
+            message: 'Obat tidak dapat dihapus karena masih digunakan pada data resep obat.',
+          });
+          return;
+        }
+        if (deleteErr.code === 'P2025') {
+          res.status(404).json({
+            success: false,
+            message: 'Data obat tidak ditemukan.',
+          });
+          return;
+        }
+        throw deleteErr;
+      }
+
+      medicinesStore = medicinesStore.filter((m) => m.id !== id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Data obat berhasil dihapus dari SIMRS.',
       });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
