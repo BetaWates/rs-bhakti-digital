@@ -116,9 +116,12 @@ export interface MedicineEntity {
   kode_obat: string;
   nama_obat: string;
   kategori: string;
+  category_id?: string | null;
   stok: number;
   harga_satuan: number;
   expired_date: string;
+  is_active?: boolean;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -176,3 +179,14 @@ export interface BillingEntity {
   created_at: string;
   updated_at: string;
 }
+
+export interface CategoryEntity {
+  id: string;
+  kode_kategori: string;
+  nama_kategori: string;
+  is_active: boolean;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+

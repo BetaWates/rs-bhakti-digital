@@ -9,6 +9,7 @@ import { PatientPortalController } from '../controllers/patientPortal.controller
 import { AdmissionController } from '../controllers/admission.controller';
 import { EMRController } from '../controllers/emr.controller';
 import { PharmacyController } from '../controllers/pharmacy.controller';
+import { CategoryController } from '../controllers/category.controller';
 import { LaboratoryController } from '../controllers/laboratory.controller';
 import { BillingController } from '../controllers/billing.controller';
 import { EmergencyController } from '../controllers/emergency.controller';
@@ -73,9 +74,18 @@ pharmacyRouter.get('/medicines', requireRoles('admin', 'direktur', 'apoteker', '
 pharmacyRouter.get('/medicines/:id', requireRoles('admin', 'direktur', 'apoteker', 'dokter'), PharmacyController.getMedicineById);
 pharmacyRouter.post('/medicines', requireRoles('admin', 'apoteker'), PharmacyController.createMedicine);
 pharmacyRouter.put('/medicines/:id', requireRoles('admin', 'apoteker'), PharmacyController.updateMedicine);
+pharmacyRouter.patch('/medicines/:id', requireRoles('admin', 'apoteker'), PharmacyController.patchMedicine);
 pharmacyRouter.delete('/medicines/:id', requireRoles('admin', 'apoteker'), PharmacyController.deleteMedicine);
 pharmacyRouter.get('/prescriptions', requireRoles('admin', 'direktur', 'apoteker', 'dokter'), PharmacyController.getPrescriptions);
 pharmacyRouter.post('/prescriptions/:id/dispense', requireRoles('admin', 'apoteker'), PharmacyController.dispensePrescription);
+
+// Category Master Data Endpoints
+pharmacyRouter.get('/categories', requireRoles('admin', 'direktur', 'apoteker', 'dokter'), CategoryController.getCategories);
+pharmacyRouter.get('/categories/:id', requireRoles('admin', 'direktur', 'apoteker', 'dokter'), CategoryController.getCategoryById);
+pharmacyRouter.post('/categories', requireRoles('admin', 'apoteker'), CategoryController.createCategory);
+pharmacyRouter.put('/categories/:id', requireRoles('admin', 'apoteker'), CategoryController.updateCategory);
+pharmacyRouter.patch('/categories/:id', requireRoles('admin', 'apoteker'), CategoryController.patchCategory);
+pharmacyRouter.delete('/categories/:id', requireRoles('admin', 'apoteker'), CategoryController.deleteCategory);
 apiRouter.use('/pharmacy', pharmacyRouter);
 
 // ============================================================================

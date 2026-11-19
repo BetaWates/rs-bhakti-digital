@@ -88,7 +88,7 @@ app.get('/api', (_req, res) => {
       auth: ['POST /api/v1/auth/login', 'POST /api/v1/auth/register-pasien', 'GET /api/v1/auth/roles', 'GET /api/v1/auth/me'],
       admission: ['GET /api/v1/admission/patients', 'POST /api/v1/admission/patients', 'POST /api/v1/admission/appointments', 'GET /api/v1/admission/queue'],
       emr: ['GET /api/v1/emr/records', 'POST /api/v1/emr/records', 'GET /api/v1/emr/patient/:id/history'],
-      pharmacy: ['GET /api/v1/pharmacy/medicines', 'GET /api/v1/pharmacy/prescriptions', 'POST /api/v1/pharmacy/prescriptions/:id/dispense'],
+      pharmacy: ['GET /api/v1/pharmacy/categories', 'POST /api/v1/pharmacy/categories', 'GET /api/v1/pharmacy/medicines', 'GET /api/v1/pharmacy/prescriptions', 'POST /api/v1/pharmacy/prescriptions/:id/dispense'],
       laboratory: ['GET /api/v1/laboratory/orders', 'POST /api/v1/laboratory/orders', 'POST /api/v1/laboratory/orders/:id/results'],
       billing: ['GET /api/v1/billing/invoices', 'POST /api/v1/billing/invoices/calculate', 'POST /api/v1/billing/invoices/:id/pay'],
       emergency: ['GET /api/v1/emergency/rooms', 'PATCH /api/v1/emergency/rooms/:id/status', 'GET /api/v1/emergency/ambulances', 'POST /api/v1/emergency/ambulances/dispatch'],

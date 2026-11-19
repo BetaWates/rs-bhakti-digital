@@ -217,9 +217,12 @@ export type Medicine = {
   kode_obat?: string;
   nama_obat?: string;
   kategori?: string;
+  category_id?: string | null;
   stok?: number;
   harga_satuan?: number;
   expired_date?: string;
+  is_active?: boolean;
+  deleted_at?: string | null;
 
   // UI View Compatibility Aliases
   name?: string;
@@ -233,6 +236,17 @@ export type Medicine = {
   expiryDate?: string;
   description?: string;
   requiresPrescription?: boolean;
+};
+
+// 9.1 Pharmacy Category Master Table
+export type Category = {
+  id: string;
+  kode_kategori: string;
+  nama_kategori: string;
+  is_active: boolean;
+  deleted_at?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 // 10. Doctor Prescription Table

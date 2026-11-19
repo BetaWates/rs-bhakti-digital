@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Medicine, Prescription } from '@/lib/types';
+import type { Medicine, Prescription, Category } from '@/lib/types';
 import { formatCurrency } from '@/lib/utils';
 import { Icon } from '@/components/shared/Icon';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { CategoryPanel } from './CategoryPanel';
 
 const initialPrescriptions: Prescription[] = [
   {
@@ -109,18 +110,31 @@ const initialPrescriptions: Prescription[] = [
 export function PharmacyPage() {
   const { currentRole, user } = useAuth();
   const role = ((currentRole || user?.role_id || user?.role || '') as string).toLowerCase();
-  const canManageMedicines = role === 'admin' || role === 'apoteker' || role === 'pharmacy';
+  const canManageMedicines = role === 'admin' || role === 'apoteker';
 
   const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loadingMeds, setLoadingMeds] = useState(true);
   const [medsError, setMedsError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'resep' | 'stok'>('resep');
+  const [activeTab, setActiveTab] = useState<'resep' | 'stok' | 'kategori'>('resep');
+
+  // Categories list for dropdown and filter
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua Kategori');
   const [rxStatusFilter, setRxStatusFilter] = useState('Semua Status');
+
+  // Medicine Pagination State
+  const [medPage, setMedPage] = useState(1);
+  const medLimit = 10;
+  const [medPagination, setMedPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    total_pages: 1,
+  });
 
   // Selected Prescription for Dispensing
   const [selectedRx, setSelectedRx] = useState<Prescription | null>(null);
@@ -133,7 +147,8 @@ export function PharmacyPage() {
   const [medForm, setMedForm] = useState({
     code: '',
     name: '',
-    category: 'Analgesik & Antipiretik',
+    categoryId: '',
+    category: '',
     dosage: '',
     unit: 'Strip (10 Tablet)',
     stock: 50,
@@ -154,45 +169,88 @@ export function PharmacyPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Load medicines from backend API
-  const fetchMedicines = useCallback(async () => {
+  // Fetch active categories for dropdown & filter
+  const fetchCategoriesList = useCallback(async () => {
     try {
-      setLoadingMeds(true);
-      setMedsError(null);
-      const res = await apiFetch<{ success: boolean; data: any[] }>('/api/pharmacy/medicines');
+      const res = await apiFetch<{
+        success: boolean;
+        data: Category[];
+      }>('/api/pharmacy/categories?limit=100&is_active=true');
       if (res && Array.isArray(res.data)) {
-        const mapped: Medicine[] = res.data.map((item) => ({
-          id: item.id,
-          kode_obat: item.kode_obat,
-          nama_obat: item.nama_obat,
-          kategori: item.kategori,
-          stok: Number(item.stok ?? 0),
-          harga_satuan: Number(item.harga_satuan ?? 0),
-          expired_date: item.expired_date,
-          // UI compatibility aliases
-          name: item.nama_obat,
-          category: item.kategori,
-          stock: Number(item.stok ?? 0),
-          minStock: item.minStock ?? 20,
-          price: Number(item.harga_satuan ?? 0),
-          expiryDate: item.expired_date,
-          dosage: item.dosage || 'Tablet',
-          unit: item.unit || 'Strip',
-        }));
-        setMedicines(mapped);
+        setCategoriesList(res.data);
       }
-    } catch (err: any) {
-      const msg = err?.message || 'Gagal memuat katalog obat dari server SIMRS.';
-      setMedsError(msg);
-      showToast(msg, 'error');
-    } finally {
-      setLoadingMeds(false);
+    } catch {
+      // Non-blocking fallback
     }
   }, []);
 
   useEffect(() => {
-    fetchMedicines();
-  }, [fetchMedicines]);
+    fetchCategoriesList();
+  }, [fetchCategoriesList]);
+
+  // Load medicines from backend API with pagination
+  const fetchMedicines = useCallback(
+    async (pageToFetch = medPage, searchVal = searchTerm, catVal = categoryFilter) => {
+      try {
+        setLoadingMeds(true);
+        setMedsError(null);
+
+        const params = new URLSearchParams();
+        params.set('page', String(pageToFetch));
+        params.set('limit', String(medLimit));
+
+        if (searchVal.trim() && activeTab === 'stok') {
+          params.set('search', searchVal.trim());
+        }
+        if (catVal !== 'Semua Kategori' && activeTab === 'stok') {
+          params.set('kategori', catVal);
+        }
+
+        const res = await apiFetch<{
+          success: boolean;
+          data: any[];
+          pagination?: { page: number; limit: number; total: number; total_pages: number };
+        }>(`/api/pharmacy/medicines?${params.toString()}`);
+
+        if (res && Array.isArray(res.data)) {
+          const mapped: Medicine[] = res.data.map((item) => ({
+            id: item.id,
+            kode_obat: item.kode_obat,
+            nama_obat: item.nama_obat,
+            kategori: item.kategori,
+            category_id: item.category_id,
+            stok: Number(item.stok ?? 0),
+            harga_satuan: Number(item.harga_satuan ?? 0),
+            expired_date: item.expired_date,
+            // UI compatibility aliases
+            name: item.nama_obat,
+            category: item.kategori,
+            stock: Number(item.stok ?? 0),
+            minStock: item.minStock ?? 20,
+            price: Number(item.harga_satuan ?? 0),
+            expiryDate: item.expired_date,
+            dosage: item.dosage || 'Tablet',
+            unit: item.unit || 'Strip',
+          }));
+          setMedicines(mapped);
+          if (res.pagination) {
+            setMedPagination(res.pagination);
+          }
+        }
+      } catch (err: any) {
+        const msg = err?.message || 'Gagal memuat katalog obat dari server SIMRS.';
+        setMedsError(msg);
+        showToast(msg, 'error');
+      } finally {
+        setLoadingMeds(false);
+      }
+    },
+    [medPage, medLimit, searchTerm, categoryFilter, activeTab]
+  );
+
+  useEffect(() => {
+    fetchMedicines(medPage, searchTerm, categoryFilter);
+  }, [fetchMedicines, medPage, searchTerm, categoryFilter]);
 
   // Dispense workflow action
   const handleUpdateRxStatus = (rxId: string, nextStatus: Prescription['status']) => {
@@ -209,10 +267,12 @@ export function PharmacyPage() {
   const handleOpenAddModal = () => {
     setIsEditing(false);
     setEditingId(null);
+    const defaultCat = categoriesList.length > 0 ? categoriesList[0] : null;
     setMedForm({
       code: '',
       name: '',
-      category: 'Analgesik & Antipiretik',
+      categoryId: defaultCat ? defaultCat.id : '',
+      category: defaultCat ? defaultCat.nama_kategori : '',
       dosage: '',
       unit: 'Strip (10 Tablet)',
       stock: 50,
@@ -227,10 +287,18 @@ export function PharmacyPage() {
   const handleOpenEditModal = (med: Medicine) => {
     setIsEditing(true);
     setEditingId(med.id);
+    let matchedCatId = med.category_id || '';
+    if (!matchedCatId && med.kategori) {
+      const found = categoriesList.find(
+        (c) => c.nama_kategori.toLowerCase() === (med.kategori || '').toLowerCase()
+      );
+      if (found) matchedCatId = found.id;
+    }
     setMedForm({
       code: med.kode_obat || med.id || '',
       name: med.nama_obat || med.name || '',
-      category: med.kategori || med.category || 'Analgesik & Antipiretik',
+      categoryId: matchedCatId,
+      category: med.kategori || med.category || '',
       dosage: med.dosage || 'Tablet',
       unit: med.unit || 'Strip (10 Tablet)',
       stock: med.stok ?? med.stock ?? 0,
@@ -259,14 +327,20 @@ export function PharmacyPage() {
 
     try {
       setIsSubmitting(true);
-      const payload = {
+      const payload: any = {
         kode_obat: medForm.code.trim(),
         nama_obat: medForm.name.trim(),
-        kategori: medForm.category.trim(),
         stok: Number(medForm.stock),
         harga_satuan: Number(medForm.price),
         expired_date: medForm.expiryDate,
       };
+
+      if (medForm.categoryId) {
+        payload.category_id = medForm.categoryId;
+      }
+      if (medForm.category) {
+        payload.kategori = medForm.category;
+      }
 
       if (isEditing && editingId) {
         await apiFetch(`/api/pharmacy/medicines/${editingId}`, {
@@ -283,7 +357,7 @@ export function PharmacyPage() {
       }
 
       setShowMedicineModal(false);
-      await fetchMedicines();
+      await fetchMedicines(medPage, searchTerm, categoryFilter);
     } catch (err: any) {
       const msg = err?.message || 'Gagal menyimpan data obat.';
       showToast(msg, 'error');
@@ -302,7 +376,7 @@ export function PharmacyPage() {
       });
       showToast(`Obat "${medicineToDelete.nama_obat || medicineToDelete.name}" berhasil dihapus.`);
       setMedicineToDelete(null);
-      await fetchMedicines();
+      await fetchMedicines(medPage, searchTerm, categoryFilter);
     } catch (err: any) {
       const msg = err?.message || 'Gagal menghapus obat.';
       showToast(msg, 'error');
@@ -311,7 +385,7 @@ export function PharmacyPage() {
     }
   };
 
-  // Filtered lists
+  // Filtered prescriptions list
   const filteredPrescriptions = prescriptions.filter((rx) => {
     const matchSearch =
       (rx.patientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -321,21 +395,10 @@ export function PharmacyPage() {
     return matchSearch && matchStatus;
   });
 
-  const filteredMedicines = medicines.filter((m) => {
-    const code = (m.kode_obat || m.id || '').toLowerCase();
-    const name = (m.name || m.nama_obat || '').toLowerCase();
-    const cat = (m.category || m.kategori || '').toLowerCase();
-    const q = searchTerm.toLowerCase();
-
-    const matchSearch = name.includes(q) || code.includes(q) || cat.includes(q);
-    const matchCategory =
-      categoryFilter === 'Semua Kategori' || (m.category || m.kategori) === categoryFilter;
-    return matchSearch && matchCategory;
-  });
-
-  // Low stock & expiry alerts
-  const lowStockCount = medicines.filter((m) => (m.stock ?? m.stok ?? 0) <= (m.minStock ?? 20)).length;
-  const categories = ['Semua Kategori', ...new Set(medicines.map((m) => m.category || m.kategori || 'Umum'))];
+  // Low stock alert count
+  const lowStockCount = medicines.filter(
+    (m) => (m.stock ?? m.stok ?? 0) <= (m.minStock ?? 20)
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -358,10 +421,10 @@ export function PharmacyPage() {
             Instalasi Farmasi & Apotek RS
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manajemen antrian e-Resep, peracikan obat, dan monitoring stok formularium
+            Manajemen antrian e-Resep, peracikan obat, kategori formularium, dan monitoring stok
           </p>
         </div>
-        {canManageMedicines && (
+        {canManageMedicines && activeTab === 'stok' && (
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -450,7 +513,18 @@ export function PharmacyPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          Katalog Stok & Formularium ({medicines.length})
+          Katalog Stok & Formularium ({medPagination.total || medicines.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('kategori')}
+          className={`pb-3 text-sm font-bold border-b-2 transition ${
+            activeTab === 'kategori'
+              ? 'border-teal-600 text-teal-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Kategori Obat
         </button>
       </div>
 
@@ -501,46 +575,59 @@ export function PharmacyPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredPrescriptions.map((rx) => (
-                  <tr key={rx.id} className="hover:bg-slate-50/80 transition">
-                    <td className="px-4 py-3.5 font-semibold text-teal-700">
-                      {rx.prescriptionNumber}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold text-slate-800">{rx.patientName}</div>
-                      <span className="text-[11px] text-slate-400">{rx.patientId}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-slate-600">{rx.doctorName}</td>
-                    <td className="px-4 py-3.5 font-medium text-slate-700">
-                      {(rx.items || []).length} Macam Obat
-                    </td>
-                    <td className="px-4 py-3.5 text-slate-500">{rx.date}</td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold ${
-                          rx.status === 'Menunggu'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : rx.status === 'Diproses'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : rx.status === 'Siap'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {rx.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRx(rx)}
-                        className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100 transition"
-                      >
-                        Detail & Racik
-                      </button>
+                {filteredPrescriptions.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-xs text-slate-400">
+                      Tidak ada antrian resep yang sesuai dengan filter.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredPrescriptions.map((rx) => {
+                    const statusStyles: Record<string, string> = {
+                      Menunggu: 'bg-amber-50 text-amber-700 border-amber-200',
+                      Diproses: 'bg-blue-50 text-blue-700 border-blue-200',
+                      Siap: 'bg-purple-50 text-purple-700 border-purple-200',
+                      Diserahkan: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    };
+                    return (
+                      <tr key={rx.id} className="hover:bg-slate-50/80 transition">
+                        <td className="px-4 py-3.5 font-bold font-mono text-teal-800">
+                          {rx.prescriptionNumber}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="font-semibold text-slate-800">{rx.patientName}</div>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {rx.patientId}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600">{rx.doctorName}</td>
+                        <td className="px-4 py-3.5 font-semibold text-slate-700">
+                          {rx.items.length} Macam Obat
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-500">{rx.date}</td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold border ${
+                              statusStyles[rx.status] || 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {rx.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRx(rx)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100 transition"
+                          >
+                            <span>Detail & Proses</span>
+                            <Icon name="arrowRight" size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -561,18 +648,25 @@ export function PharmacyPage() {
                 type="text"
                 placeholder="Cari nama obat, kode, kategori formularium..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setMedPage(1);
+                }}
                 className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-2 text-xs focus:border-teal-500 focus:outline-none"
               />
             </div>
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setMedPage(1);
+              }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-teal-500 focus:outline-none"
             >
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              <option value="Semua Kategori">Semua Kategori</option>
+              {categoriesList.map((cat) => (
+                <option key={cat.id} value={cat.nama_kategori}>
+                  {cat.nama_kategori}
                 </option>
               ))}
             </select>
@@ -592,7 +686,7 @@ export function PharmacyPage() {
                 <p className="text-xs font-semibold text-rose-700">{medsError}</p>
                 <button
                   type="button"
-                  onClick={() => fetchMedicines()}
+                  onClick={() => fetchMedicines(medPage, searchTerm, categoryFilter)}
                   className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-rose-700 transition"
                 >
                   <Icon name="refreshCw" size={14} />
@@ -619,7 +713,7 @@ export function PharmacyPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredMedicines.length === 0 ? (
+                  {medicines.length === 0 ? (
                     <tr>
                       <td
                         colSpan={canManageMedicines ? 9 : 8}
@@ -629,7 +723,7 @@ export function PharmacyPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredMedicines.map((med) => {
+                    medicines.map((med) => {
                       const isLow = (med.stock ?? med.stok ?? 0) <= (med.minStock ?? 20);
                       return (
                         <tr key={med.id} className="hover:bg-slate-50/80 transition">
@@ -645,7 +739,7 @@ export function PharmacyPage() {
                             {med.category || med.kategori}
                           </td>
                           <td className="px-4 py-3.5 text-slate-700">
-                            {med.dosage || med.form || 'Tablet'}
+                            {med.dosage || 'Tablet'}
                           </td>
                           <td className="px-4 py-3.5 text-slate-500">
                             {med.unit || 'Strip'}
@@ -709,9 +803,52 @@ export function PharmacyPage() {
                   )}
                 </tbody>
               </table>
+
+              {/* Medicine Pagination Bar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3">
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Menampilkan{' '}
+                  {medPagination.total === 0 ? 0 : (medPagination.page - 1) * medPagination.limit + 1} -{' '}
+                  {Math.min(medPagination.page * medPagination.limit, medPagination.total)} dari{' '}
+                  <span className="font-bold text-slate-700">{medPagination.total}</span> data obat
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-500 font-medium mr-2">
+                    Halaman {medPagination.page} dari {medPagination.total_pages || 1}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={medPagination.page <= 1 || loadingMeds}
+                    onClick={() => setMedPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Sebelumnya
+                  </button>
+                  <button
+                    type="button"
+                    disabled={medPagination.page >= medPagination.total_pages || loadingMeds}
+                    onClick={() => setMedPage((p) => Math.min(medPagination.total_pages, p + 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Selanjutnya
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
+      )}
+
+      {/* Tab Content: Kategori Obat */}
+      {activeTab === 'kategori' && (
+        <CategoryPanel
+          canManage={canManageMedicines}
+          showToast={showToast}
+          onCategoriesUpdated={() => {
+            fetchCategoriesList();
+            fetchMedicines(medPage, searchTerm, categoryFilter);
+          }}
+        />
       )}
 
       {/* Modal Detail & Dispense Resep */}
@@ -749,35 +886,101 @@ export function PharmacyPage() {
                 </div>
                 <div className="text-right">
                   <span className="text-[11px] font-bold text-teal-800 uppercase">
-                    Dokter Pemeriksa
+                    Dokter Pengirim
                   </span>
-                  <p className="text-xs font-semibold text-slate-700">
-                    {selectedRx.doctorName}
-                  </p>
+                  <p className="text-sm font-semibold text-slate-700">{selectedRx.doctorName}</p>
                 </div>
+              </div>
+
+              {/* Status Stepper */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                <span className="text-xs font-bold text-slate-700 block mb-3">
+                  Progress Alur Resep:
+                </span>
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  {(['Menunggu', 'Diproses', 'Siap', 'Diserahkan'] as Prescription['status'][]).map(
+                    (st, idx) => {
+                      const isCurrent = selectedRx.status === st;
+                      const order = ['Menunggu', 'Diproses', 'Siap', 'Diserahkan'];
+                      const isPassed = order.indexOf(selectedRx.status) >= idx;
+                      return (
+                        <div
+                          key={st}
+                          className={`rounded-lg p-2.5 border transition ${
+                            isCurrent
+                              ? 'bg-teal-600 text-white border-teal-600 font-bold shadow-xs'
+                              : isPassed
+                              ? 'bg-teal-50 text-teal-700 border-teal-200 font-medium'
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }`}
+                        >
+                          <div className="text-[10px] uppercase tracking-wider">Tahap {idx + 1}</div>
+                          <div className="text-xs mt-0.5">{st}</div>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+
+                {canManageMedicines && (
+                  <div className="mt-4 flex flex-wrap gap-2 justify-end border-t border-slate-100 pt-3">
+                    {selectedRx.status === 'Menunggu' && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateRxStatus(selectedRx.id, 'Diproses')}
+                        className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 transition"
+                      >
+                        Mulai Meracik Obat
+                      </button>
+                    )}
+                    {selectedRx.status === 'Diproses' && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateRxStatus(selectedRx.id, 'Siap')}
+                        className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-purple-700 transition"
+                      >
+                        Obat Selesai Diracik (Siap)
+                      </button>
+                    )}
+                    {selectedRx.status === 'Siap' && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateRxStatus(selectedRx.id, 'Diserahkan')}
+                        className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition"
+                      >
+                        Serahkan ke Pasien
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Items List */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
-                  Daftar Obat yang Diresepkan:
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Daftar Obat Yang Diresapkan ({selectedRx.items.length})
                 </h4>
-                <div className="divide-y divide-slate-100 border rounded-xl overflow-hidden">
-                  {(selectedRx.items || []).map((item, idx) => (
-                    <div key={idx} className="p-3.5 bg-white flex justify-between items-center">
+                <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+                  {selectedRx.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 bg-white flex items-center justify-between hover:bg-slate-50 transition"
+                    >
                       <div>
                         <div className="font-bold text-slate-800 text-xs">
                           {item.medicineName}
                         </div>
-                        <div className="text-[11px] text-teal-700 font-medium mt-0.5">
+                        <div className="text-[11px] text-slate-500 mt-0.5">
                           {item.dosage} • {item.frequency}
                         </div>
-                        <div className="text-[11px] text-slate-500 italic mt-0.5">
-                          Instruksi: {item.instructions}
-                        </div>
+                        {item.instructions && (
+                          <div className="text-[11px] text-teal-700 mt-0.5 italic">
+                            Instruksi: {item.instructions}
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
+                        <span className="text-xs font-bold text-slate-800">
                           Qty: {item.quantity}
                         </span>
                       </div>
@@ -787,64 +990,11 @@ export function PharmacyPage() {
               </div>
 
               {selectedRx.notes && (
-                <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 border border-amber-200">
-                  <span className="font-bold">Catatan Khusus Dokter: </span>
+                <div className="rounded-xl bg-amber-50 p-3 border border-amber-200 text-xs text-amber-800">
+                  <span className="font-bold block mb-0.5">Catatan Dokter:</span>
                   {selectedRx.notes}
                 </div>
               )}
-
-              {/* Status Progression */}
-              <div className="pt-2">
-                <span className="text-xs font-bold text-slate-600 block mb-2">
-                  Ubah Alur Status:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateRxStatus(selectedRx.id, 'Menunggu')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      selectedRx.status === 'Menunggu'
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    1. Menunggu
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateRxStatus(selectedRx.id, 'Diproses')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      selectedRx.status === 'Diproses'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    2. Diproses (Peracikan)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateRxStatus(selectedRx.id, 'Siap')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      selectedRx.status === 'Siap'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    3. Siap Diambil
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateRxStatus(selectedRx.id, 'Diserahkan')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      selectedRx.status === 'Diserahkan'
-                        ? 'bg-slate-800 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    4. Selesai Diserahkan
-                  </button>
-                </div>
-              </div>
             </div>
 
             <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3 bg-slate-50">
@@ -909,24 +1059,37 @@ export function PharmacyPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Kategori</label>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Kategori Obat *
+                  </label>
                   <select
-                    value={medForm.category}
-                    onChange={(e) => setMedForm({ ...medForm, category: e.target.value })}
+                    required
+                    value={medForm.categoryId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      const found = categoriesList.find((c) => c.id === selectedId);
+                      setMedForm({
+                        ...medForm,
+                        categoryId: selectedId,
+                        category: found ? found.nama_kategori : '',
+                      });
+                    }}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
                   >
-                    <option value="Analgesik & Antipiretik">Analgesik & Antipiretik</option>
-                    <option value="Antibiotik Penicilin">Antibiotik Penicilin</option>
-                    <option value="Antibiotik & Antimikroba">Antibiotik & Antimikroba</option>
-                    <option value="Antihipertensi">Antihipertensi</option>
-                    <option value="Antikolesterol">Antikolesterol</option>
-                    <option value="Kardiovaskular & Antihipertensi">Kardiovaskular</option>
-                    <option value="Antidiabetes Oral">Antidiabetes Oral</option>
-                    <option value="Gastrointestinal">Gastrointestinal</option>
-                    <option value="Antihistamin">Antihistamin</option>
-                    <option value="Suplemen & Vitamin">Suplemen & Vitamin</option>
-                    <option value="Umum">Umum</option>
+                    <option value="" disabled>
+                      -- Pilih Kategori Obat --
+                    </option>
+                    {categoriesList.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.nama_kategori} ({cat.kode_kategori})
+                      </option>
+                    ))}
                   </select>
+                  {categoriesList.length === 0 && (
+                    <span className="text-[10px] text-amber-600 block mt-1">
+                      Memuat data kategori...
+                    </span>
+                  )}
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
@@ -944,7 +1107,9 @@ export function PharmacyPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Satuan Kemasan</label>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Satuan Kemasan
+                  </label>
                   <input
                     type="text"
                     placeholder="Contoh: Strip (10 Tablet)"
@@ -1029,8 +1194,12 @@ export function PharmacyPage() {
                   {isSubmitting && <Icon name="refreshCw" size={14} className="animate-spin" />}
                   <span>
                     {isSubmitting
-                      ? (isEditing ? 'Menyimpan...' : 'Menambahkan...')
-                      : (isEditing ? 'Simpan Perubahan' : 'Simpan Obat')}
+                      ? isEditing
+                        ? 'Menyimpan...'
+                        : 'Menambahkan...'
+                      : isEditing
+                      ? 'Simpan Perubahan'
+                      : 'Simpan Obat'}
                   </span>
                 </button>
               </div>
@@ -1057,7 +1226,7 @@ export function PharmacyPage() {
                     {medicineToDelete.nama_obat || medicineToDelete.name}
                   </span>{' '}
                   ({medicineToDelete.kode_obat || medicineToDelete.id}) dari inventaris SIMRS?
-                  Tindakan ini tidak dapat dibatalkan.
+                  Tindakan ini akan menonaktifkan obat dari formularium aktif.
                 </p>
               </div>
               <div className="flex justify-center gap-3 pt-2">

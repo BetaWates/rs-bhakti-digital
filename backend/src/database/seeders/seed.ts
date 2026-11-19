@@ -83,11 +83,19 @@ export const SEED_MEDICAL_RECORDS = [
 ];
 
 export const SEED_MEDICINES = [
-  { id: 'med-01', kode_obat: 'MED-AMLO-5', nama_obat: 'Amlodipine Besilate 5 mg', kategori: 'Antihipertensi', stok: 240, harga_satuan: 1200, expired_date: '2026-08-30' },
-  { id: 'med-02', kode_obat: 'MED-ATOR-20', nama_obat: 'Atorvastatin Calcium 20 mg', kategori: 'Antikolesterol', stok: 180, harga_satuan: 4500, expired_date: '2026-11-15' },
-  { id: 'med-03', kode_obat: 'MED-METF-500', nama_obat: 'Metformin HCl 500 mg', kategori: 'Antidiabetes Oral', stok: 350, harga_satuan: 800, expired_date: '2026-05-20' },
-  { id: 'med-04', kode_obat: 'MED-PARA-500', nama_obat: 'Paracetamol 500 mg', kategori: 'Analgesik & Antipiretik', stok: 500, harga_satuan: 500, expired_date: '2027-01-10' },
-  { id: 'med-05', kode_obat: 'MED-AMOX-500', nama_obat: 'Amoxicillin Trihydrate 500 mg', kategori: 'Antibiotik Penicilin', stok: 42, harga_satuan: 1500, expired_date: '2025-09-12' },
+  { id: 'med-01', kode_obat: 'MED-AMLO-5', nama_obat: 'Amlodipine Besilate 5 mg', kategori: 'Antihipertensi', category_id: 'cat-01', stok: 240, harga_satuan: 1200, expired_date: '2026-08-30' },
+  { id: 'med-02', kode_obat: 'MED-ATOR-20', nama_obat: 'Atorvastatin Calcium 20 mg', kategori: 'Antikolesterol', category_id: 'cat-02', stok: 180, harga_satuan: 4500, expired_date: '2026-11-15' },
+  { id: 'med-03', kode_obat: 'MED-METF-500', nama_obat: 'Metformin HCl 500 mg', kategori: 'Antidiabetes Oral', category_id: 'cat-03', stok: 350, harga_satuan: 800, expired_date: '2026-05-20' },
+  { id: 'med-04', kode_obat: 'MED-PARA-500', nama_obat: 'Paracetamol 500 mg', kategori: 'Analgesik & Antipiretik', category_id: 'cat-04', stok: 500, harga_satuan: 500, expired_date: '2027-01-10' },
+  { id: 'med-05', kode_obat: 'MED-AMOX-500', nama_obat: 'Amoxicillin Trihydrate 500 mg', kategori: 'Antibiotik Penicilin', category_id: 'cat-05', stok: 42, harga_satuan: 1500, expired_date: '2025-09-12' },
+];
+
+export const SEED_CATEGORIES = [
+  { id: 'cat-01', kode_kategori: 'KAT-HIPI', nama_kategori: 'Antihipertensi', is_active: true },
+  { id: 'cat-02', kode_kategori: 'KAT-KOLE', nama_kategori: 'Antikolesterol', is_active: true },
+  { id: 'cat-03', kode_kategori: 'KAT-DIAB', nama_kategori: 'Antidiabetes Oral', is_active: true },
+  { id: 'cat-04', kode_kategori: 'KAT-ANAL', nama_kategori: 'Analgesik & Antipiretik', is_active: true },
+  { id: 'cat-05', kode_kategori: 'KAT-ANTI', nama_kategori: 'Antibiotik Penicilin', is_active: true },
 ];
 
 export const SEED_PRESCRIPTIONS = [
@@ -190,7 +198,12 @@ export async function runDatabaseSeed() {
     for (const med of SEED_MEDICINES) {
       await prisma.medicine.upsert({
         where: { id: med.id },
-        update: { stok: med.stok, harga_satuan: med.harga_satuan },
+        update: {
+          stok: med.stok,
+          harga_satuan: med.harga_satuan,
+          kategori: med.kategori,
+          category_id: med.category_id,
+        },
         create: {
           ...med,
           expired_date: new Date(med.expired_date),
@@ -198,7 +211,10 @@ export async function runDatabaseSeed() {
       });
     }
 
-    console.log('Database seeding successfully populated roles, users, patients, doctors, and medicines.');
+    await seedCategoriesOnly(prisma);
+    await backfillMedicineCategories(prisma);
+
+    console.log('Database seeding successfully populated roles, users, patients, doctors, medicines, and categories.');
   } catch (err) {
     console.error('Seeding error:', err);
     throw err;
@@ -207,9 +223,100 @@ export async function runDatabaseSeed() {
   }
 }
 
+export async function backfillMedicineCategories(customPrisma?: PrismaClient) {
+  const prisma = customPrisma || new PrismaClient();
+  const shouldDisconnect = !customPrisma;
+  try {
+    console.log('Running idempotent backfill: linking Medicine.category_id from Category.nama_kategori...');
+    const medicines = await prisma.medicine.findMany();
+    const categories = await prisma.category.findMany({
+      where: { deleted_at: null },
+    });
+
+    const categoryMap = new Map<string, string>();
+    for (const cat of categories) {
+      categoryMap.set(cat.nama_kategori.trim().toLowerCase(), cat.id);
+    }
+
+    let matchedCount = 0;
+    let unmatchedCount = 0;
+    const unmatchedMedicines: string[] = [];
+
+    for (const med of medicines) {
+      const catId = categoryMap.get(med.kategori.trim().toLowerCase());
+      if (catId) {
+        if (med.category_id !== catId) {
+          await prisma.medicine.update({
+            where: { id: med.id },
+            data: { category_id: catId },
+          });
+        }
+        matchedCount++;
+      } else {
+        unmatchedCount++;
+        unmatchedMedicines.push(`${med.id} (${med.nama_obat}: "${med.kategori}")`);
+      }
+    }
+
+    console.log(`[Backfill Result]: ${matchedCount} rows matched and updated. ${unmatchedCount} rows left unmatched.`);
+    if (unmatchedMedicines.length > 0) {
+      console.log('[Unmatched Medicines]:', unmatchedMedicines);
+    }
+    return { matchedCount, unmatchedCount, unmatchedMedicines };
+  } finally {
+    if (shouldDisconnect) {
+      await prisma.$disconnect();
+    }
+  }
+}
+
+export async function seedCategoriesOnly(customPrisma?: PrismaClient) {
+  const prisma = customPrisma || new PrismaClient();
+  const shouldDisconnect = !customPrisma;
+  try {
+    console.log('Seeding categories...');
+    for (const cat of SEED_CATEGORIES) {
+      await prisma.category.upsert({
+        where: { kode_kategori: cat.kode_kategori },
+        update: {
+          nama_kategori: cat.nama_kategori,
+          is_active: cat.is_active,
+        },
+        create: {
+          id: cat.id,
+          kode_kategori: cat.kode_kategori,
+          nama_kategori: cat.nama_kategori,
+          is_active: cat.is_active,
+        },
+      });
+    }
+    console.log('Categories seeded successfully.');
+  } finally {
+    if (shouldDisconnect) {
+      await prisma.$disconnect();
+    }
+  }
+}
+
 if (process.argv[1] && process.argv[1].includes('seed.ts')) {
-  runDatabaseSeed().catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+  if (process.argv.includes('--categories-only')) {
+    seedCategoriesOnly()
+      .then(() => process.exit(0))
+      .catch((e) => {
+        console.error(e);
+        process.exit(1);
+      });
+  } else if (process.argv.includes('--backfill-categories')) {
+    backfillMedicineCategories()
+      .then(() => process.exit(0))
+      .catch((e) => {
+        console.error(e);
+        process.exit(1);
+      });
+  } else {
+    runDatabaseSeed().catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+  }
 }
